@@ -155,6 +155,12 @@ def read_file(name):
     return (SANDBOX / name).read_text(encoding='utf-8')
 
 
+def read_app_log():
+    if not APP_LOG.exists():
+        return ''
+    return APP_LOG.read_text(encoding='utf-8')
+
+
 def test_insert_and_save():
     reset_sandbox()
     app = VedCnAutomator([SANDBOX / 'alpha.txt'])
@@ -178,6 +184,21 @@ def test_delete_char_and_undo():
         app.press('u')
         app.save()
         return read_file('alpha.txt') == BASE_TEXT
+    finally:
+        app.quit()
+
+
+def test_redo_shortcut():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.press('x')
+        app.press('u')
+        app.hotkey(app.mod, 'r')
+        app.save()
+        expected = 'ine 1: alpha\nline 2: beta\nline 3: gamma\n'
+        return read_file('alpha.txt') == expected
     finally:
         app.quit()
 
@@ -207,6 +228,34 @@ def test_yank_and_paste_line():
         app.save()
         lines = [line for line in read_file('alpha.txt').splitlines() if line]
         return len(lines) >= 2 and lines[0] == lines[1] == 'line 1: alpha'
+    finally:
+        app.quit()
+
+
+def test_open_line_below_without_inserting_trigger_key():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.press('o')
+        app.write('below')
+        app.save()
+        lines = read_file('alpha.txt').splitlines()
+        return len(lines) >= 2 and lines[1] == 'below'
+    finally:
+        app.quit()
+
+
+def test_open_line_above_without_inserting_trigger_key():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.hotkey('shift', 'o')
+        app.write('above')
+        app.save()
+        lines = read_file('alpha.txt').splitlines()
+        return len(lines) >= 2 and lines[0] == 'above' and lines[1] == 'line 1: alpha'
     finally:
         app.quit()
 
@@ -244,6 +293,36 @@ def test_picker_open_file():
         app.save()
         content = read_file('picker_target.txt')
         return content.startswith('OPENED pick me')
+    finally:
+        app.quit()
+
+
+def test_save_empty_tab_is_blocked():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX])
+    try:
+        app.start()
+        app.hotkey(app.mod, 't')
+        app.hotkey(app.mod, 's')
+        time.sleep(0.8)
+        log = read_app_log()
+        return 'save blocked: empty path' in log
+    finally:
+        app.quit()
+
+
+def test_picker_no_results_does_not_open_file():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX])
+    try:
+        app.start()
+        app.hotkey(app.mod, 'p')
+        app.write('zzznomatch')
+        app.press('enter')
+        time.sleep(0.8)
+        log = read_app_log()
+        files_unchanged = all(read_file(name) == content for name, content in FIXTURE_FILES.items())
+        return 'picker selection blocked: no results query=zzznomatch' in log and files_unchanged
     finally:
         app.quit()
 
