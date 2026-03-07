@@ -1,0 +1,8 @@
+ved-cn
+*.dSYM/
+.DS_Store
+tests/pyautogui/.test_state.json
+tests/pyautogui/test_results.txt
+tests/pyautogui/app_test.log
+tests/pyautogui/__pycache__/
+tests/pyautogui/sandbox/*.txt
