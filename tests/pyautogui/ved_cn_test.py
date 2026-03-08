@@ -27,8 +27,15 @@ BASE_TEXT = 'line 1: alpha\nline 2: beta\nline 3: gamma\n'
 FIXTURE_FILES = {
     'alpha.txt': BASE_TEXT,
     'beta.txt': 'second file\n',
+    'cjk.txt': '你好 世界 again\n',
+    'completion.txt': 'alphabet\nal\n',
+    'indent.txt': 'word\n',
+    'long.txt': ''.join(f'row {index:02d}\n' for index in range(1, 61)),
+    'motion.txt': '    abc\nnext\n',
+    'objects.txt': 'call(foo, bar)\n',
     'notes.txt': 'workspace note\n',
     'picker_target.txt': 'pick me\n',
+    'search.txt': 'one two one\n',
 }
 
 
@@ -350,6 +357,239 @@ def test_native_paste_multiline_text():
         app.save()
         content = read_file('alpha.txt')
         return content.startswith('中文第一行\n第二行😂line 1: alpha')
+    finally:
+        app.quit()
+
+
+def test_delete_word_with_cjk_motion():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'cjk.txt'])
+    try:
+        app.start()
+        app.press('w')
+        app.press('d')
+        app.press('w')
+        app.save()
+        return read_file('cjk.txt') == '你世界 again\n'
+    finally:
+        app.quit()
+
+
+def scenario_change_inside_pair():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'objects.txt'])
+    try:
+        app.start()
+        app.press('right', count=6)
+        app.press('c')
+        app.press('i')
+        app.write('baz')
+        app.press('esc')
+        app.save()
+        return read_file('objects.txt') == 'call(baz)\n'
+    finally:
+        app.quit()
+
+
+def test_search_and_delete_match():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'search.txt'])
+    try:
+        app.start()
+        app.press('/')
+        app.write('one')
+        app.press('enter')
+        app.press('x')
+        app.save()
+        return read_file('search.txt') == 'one two ne\n'
+    finally:
+        app.quit()
+
+
+def test_visual_delete_selection():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'search.txt'])
+    try:
+        app.start()
+        app.press('v')
+        app.press('right', count=3)
+        app.press('d')
+        app.save()
+        return read_file('search.txt') == ' two one\n'
+    finally:
+        app.quit()
+
+
+def test_system_clipboard_yank_current_line():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'search.txt'])
+    try:
+        pyperclip.copy('')
+        app.start()
+        app.hotkey('shift', '=')
+        app.press('y')
+        time.sleep(0.5)
+        return pyperclip.paste() == 'one two one'
+    finally:
+        app.quit()
+
+
+def test_replace_char_command():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.press('r')
+        time.sleep(0.25)
+        app.press('z')
+        time.sleep(0.25)
+        app.save()
+        return read_file('alpha.txt') == 'zine 1: alpha\nline 2: beta\nline 3: gamma\n'
+    finally:
+        app.quit()
+
+
+def test_join_lines_command():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.hotkey('shift', 'j')
+        app.save()
+        return read_file('alpha.txt') == 'line 1: alpha line 2: beta\nline 3: gamma\n'
+    finally:
+        app.quit()
+
+
+def test_insert_line_start_and_append_end():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.hotkey('shift', 'i')
+        app.write('HEAD ')
+        app.press('esc')
+        app.hotkey('shift', 'a')
+        app.write(' TAIL')
+        app.save()
+        first_line = read_file('alpha.txt').splitlines()[0]
+        return first_line == 'HEAD line 1: alpha TAIL'
+    finally:
+        app.quit()
+
+
+def test_goto_file_start_and_end():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        app.start()
+        app.hotkey('shift', 'g')
+        app.hotkey('shift', 'i')
+        app.write('LAST ')
+        app.press('esc')
+        app.press('g')
+        app.press('g')
+        app.hotkey('shift', 'i')
+        app.write('FIRST ')
+        app.save()
+        lines = read_file('alpha.txt').splitlines()
+        return lines[0] == 'FIRST line 1: alpha' and lines[-1] == 'LAST '
+    finally:
+        app.quit()
+
+
+def scenario_center_current_line_with_zz():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'long.txt'])
+    try:
+        app.start()
+        app.hotkey(app.mod, 'f')
+        app.hotkey(app.mod, 'f')
+        app.press('z')
+        app.press('z')
+        time.sleep(0.8)
+        center_lines = [line for line in read_app_log().splitlines() if line.startswith('center line=')]
+        if not center_lines:
+            return False
+        latest = center_lines[-1]
+        parts = dict(item.split('=') for item in latest.split())
+        line = int(parts['line'])
+        top = int(parts['top'])
+        visible = int(parts['visible'])
+        return abs((line - top) - (visible // 2)) <= 1
+    finally:
+        app.quit()
+
+
+def test_indent_and_outdent_current_line():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'indent.txt'])
+    try:
+        app.start()
+        app.hotkey('shift', '.')
+        app.hotkey('shift', ',')
+        app.hotkey('shift', '.')
+        app.save()
+        return read_file('indent.txt') == '    word\n'
+    finally:
+        app.quit()
+
+
+def test_zero_dollar_caret_motion_commands():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'motion.txt'])
+    try:
+        app.start()
+        app.hotkey('shift', '4')
+        app.press('x')
+        app.press('u')
+        app.hotkey('shift', '6')
+        app.press('x')
+        app.press('u')
+        app.press('0')
+        app.press('x')
+        app.hotkey('shift', '4')
+        app.press('x')
+        app.save()
+        return read_file('motion.txt') == '   abcnext\n'
+    finally:
+        app.quit()
+
+
+def test_screen_top_and_bottom_motion():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'long.txt'])
+    try:
+        app.start()
+        app.hotkey(app.mod, 'f')
+        app.hotkey(app.mod, 'f')
+        app.hotkey('shift', 'l')
+        app.hotkey('shift', 'i')
+        app.write('TOP ')
+        app.press('esc')
+        app.hotkey('shift', 'h')
+        app.hotkey('shift', 'i')
+        app.write('BOTTOM ')
+        app.save()
+        lines = read_file('long.txt').splitlines()
+        top_index = next((i for i, line in enumerate(lines) if line.startswith('TOP ')), -1)
+        bottom_index = next((i for i, line in enumerate(lines) if line.startswith('BOTTOM ')), -1)
+        return top_index >= 0 and bottom_index >= 0 and top_index < bottom_index
+    finally:
+        app.quit()
+
+
+def test_ctrl_n_completion():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'completion.txt'])
+    try:
+        app.start()
+        app.press('down')
+        app.press('end')
+        app.press('i')
+        app.hotkey(app.mod, 'n')
+        app.save()
+        return read_file('completion.txt') == 'alphabet\nalphabet\n'
     finally:
         app.quit()
 

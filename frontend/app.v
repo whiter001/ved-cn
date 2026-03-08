@@ -148,14 +148,30 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 		return
 	}
 	mut state := window.session.current_state_mut()
-	action := state.key_down(key, mod)
+	action := state.key_down(key, mod, window.visible_line_count())
 	if action.request_save {
 		window.save_current_buffer()
+	}
+	if action.copy_to_system != '' {
+		write_system_clipboard(action.copy_to_system) or {
+			window.message = '复制到系统剪贴板失败: ${err.msg()}'
+			window.ensure_cursor_visible()
+			window.sync_ime_focus()
+			window.gg.refresh_ui()
+			return
+		}
+		window.message = '已复制到系统剪贴板'
 	}
 	if action.request_quit {
 		exit(0)
 	}
 	window.ensure_cursor_visible()
+	if key == .z && state.status == 'z' {
+		append_test_log('center pending')
+	}
+	if state.status == 'CENTER' {
+		append_test_log('center line=${state.buffer.cursor.line} top=${state.buffer.scroll_top} visible=${window.visible_line_count()}')
+	}
 	window.sync_ime_focus()
 	window.gg.refresh_ui()
 }
@@ -340,12 +356,16 @@ fn (mut window Window) draw_editor_surface() {
 	visible := window.visible_line_count()
 	start := state.buffer.scroll_top
 	end := min_int(start + visible, state.buffer.line_count())
+	sel_start, sel_end, has_selection := state.selection_range()
 	for line_no := start; line_no < end; line_no++ {
 		row := line_no - start
 		y := top + row * window.line_height
 		if line_no == state.buffer.cursor.line {
 			window.gg.draw_rect_filled(gutter_width + 1, y, window.width - gutter_width - 1,
 				window.line_height, window.theme.line_highlight)
+		}
+		if has_selection {
+			window.draw_selection_line(line_no, y, text_left, state, sel_start, sel_end)
 		}
 		line_label := '${line_no + 1:4d}'
 		window.gg.scissor_rect(0, top, window.width, window.height - top - bottom)
@@ -357,6 +377,28 @@ fn (mut window Window) draw_editor_surface() {
 	}
 	window.gg.scissor_rect(0, 0, window.width, window.height)
 	window.draw_cursor(gutter_width, top, bottom)
+}
+
+fn (mut window Window) draw_selection_line(line_no int, y int, text_left int, state editor.State, sel_start core.Cursor, sel_end core.Cursor) {
+	if line_no < sel_start.line || line_no > sel_end.line {
+		return
+	}
+	line := state.buffer.lines[line_no]
+	mut start_col := 0
+	mut end_col := line.runes().len
+	if line_no == sel_start.line {
+		start_col = sel_start.column
+	}
+	if line_no == sel_end.line {
+		end_col = sel_end.column
+	}
+	if end_col <= start_col {
+		return
+	}
+	x1 := text_left + window.text_width_before_column(line, start_col) - state.buffer.scroll_left_px
+	x2 := text_left + window.text_width_before_column(line, end_col) - state.buffer.scroll_left_px
+	window.gg.draw_rect_filled(x1, y + 3, max_int(x2 - x1, 3), window.line_height - 6,
+		window.theme.accent_soft)
 }
 
 fn (mut window Window) draw_cursor(gutter_width int, top int, bottom int) {
