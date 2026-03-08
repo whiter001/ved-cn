@@ -41,6 +41,8 @@ pub mut:
 	picker         FilePicker
 	skip_next_text string
 	marked_text    string
+	emoji_font     string
+	symbol_font    string
 	theme          Theme = default_theme()
 }
 
@@ -68,6 +70,8 @@ pub fn new_window(buffers []core.Buffer, store infra.FileStore, workspace_root s
 		store: store
 		workspace: workspace
 		workspace_root: workspace_root
+		emoji_font: resolve_emoji_font_path()
+		symbol_font: resolve_symbol_font_path()
 	}
 }
 
@@ -290,8 +294,8 @@ fn (mut window Window) draw_editor_surface() {
 		line_label := '${line_no + 1:4d}'
 		window.gg.draw_text(12, y + 5, line_label, text_cfg(window.theme.muted, 16))
 		content := expand_tabs(state.buffer.lines[line_no], 4)
-		window.gg.draw_text(gutter_width + 18, y + 4, content, text_cfg(window.theme.foreground,
-			window.font_size))
+		window.draw_text_with_fallback(gutter_width + 18, y + 4, content,
+			text_cfg(window.theme.foreground, window.font_size))
 	}
 	window.draw_cursor(gutter_width, top, bottom)
 }
@@ -343,9 +347,11 @@ fn (mut window Window) draw_marked_text() {
 	line_text := state.buffer.lines[line]
 	x := gutter_width + 22 + window.text_width_before_column(line_text, state.buffer.cursor.column)
 	y := 52 + window.tab_bar_height + (line - start) * window.line_height + 4
-	window.gg.draw_text(x, y, window.marked_text, text_cfg(window.theme.accent, window.font_size))
+	window.draw_text_with_fallback(x, y, window.marked_text,
+		text_cfg(window.theme.accent, window.font_size))
 	window.gg.draw_line(x, y + window.line_height - 3,
-		x + estimate_text_width(window.marked_text, window.font_size), y + window.line_height - 3,
+		x + window.measure_text_with_fallback(window.marked_text,
+			text_cfg(window.theme.accent, window.font_size)), y + window.line_height - 3,
 		window.theme.accent)
 }
 
@@ -549,6 +555,76 @@ fn text_cfg(color gg.Color, size int) gg.TextCfg {
 	}
 }
 
+struct TextSegment {
+	text   string
+	family string
+}
+
+fn (window &Window) draw_text_with_fallback(x int, y int, text string, cfg gg.TextCfg) {
+	mut cur_x := x
+	for segment in window.segment_text(text) {
+		segment_cfg := gg.TextCfg{
+			...cfg
+			family: segment.family
+		}
+		window.gg.draw_text(cur_x, y, segment.text, segment_cfg)
+		cur_x += window.gg.text_width(segment.text)
+	}
+}
+
+fn (window &Window) measure_text_with_fallback(text string, cfg gg.TextCfg) int {
+	mut width := 0
+	for segment in window.segment_text(text) {
+		segment_cfg := gg.TextCfg{
+			...cfg
+			family: segment.family
+		}
+		window.gg.set_text_cfg(segment_cfg)
+		width += window.gg.text_width(segment.text)
+	}
+	window.gg.set_text_cfg(cfg)
+	return width
+}
+
+fn (window &Window) segment_text(text string) []TextSegment {
+	if text == '' {
+		return []TextSegment{}
+	}
+	mut segments := []TextSegment{}
+	mut current_text := ''
+	mut current_family := ''
+	for rune_value in text.runes() {
+		family := window.family_for_rune(rune_value)
+		glyph := rune_value.str()
+		if current_text == '' {
+			current_text = glyph
+			current_family = family
+			continue
+		}
+		if family == current_family {
+			current_text += glyph
+			continue
+		}
+		segments << TextSegment{current_text, current_family}
+		current_text = glyph
+		current_family = family
+	}
+	if current_text != '' {
+		segments << TextSegment{current_text, current_family}
+	}
+	return segments
+}
+
+fn (window &Window) family_for_rune(r rune) string {
+	if is_emoji_rune(r) && window.emoji_font != '' {
+		return window.emoji_font
+	}
+	if is_symbol_rune(r) && window.symbol_font != '' {
+		return window.symbol_font
+	}
+	return ''
+}
+
 fn display_path(path string) string {
 	if path == '' {
 		return '[No Name]'
@@ -570,7 +646,8 @@ fn expand_tabs(text string, tab_size int) string {
 
 fn (window &Window) text_width_before_column(text string, column int) int {
 	prefix := rune_prefix(text, column)
-	return window.gg.text_width(expand_tabs(prefix, 4))
+	return window.measure_text_with_fallback(expand_tabs(prefix, 4),
+		text_cfg(window.theme.foreground, window.font_size))
 }
 
 fn (window &Window) cursor_block_width(text string, column int) int {
@@ -620,6 +697,46 @@ fn resolve_font_path() string {
 	}
 	append_test_log('font path=<empty>')
 	return ''
+}
+
+fn resolve_emoji_font_path() string {
+	paths := [
+		'/System/Library/Fonts/Apple Color Emoji.ttc',
+	]
+	for path in paths {
+		if os.exists(path) {
+			return path
+		}
+	}
+	return ''
+}
+
+fn resolve_symbol_font_path() string {
+	paths := [
+		'/System/Library/Fonts/Apple Symbols.ttf',
+		'/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+	]
+	for path in paths {
+		if os.exists(path) {
+			return path
+		}
+	}
+	return ''
+}
+
+fn is_emoji_rune(r rune) bool {
+	code := u32(r)
+	return (code >= 0x1f300 && code <= 0x1faff) || (code >= 0x2600 && code <= 0x27bf)
+}
+
+fn is_symbol_rune(r rune) bool {
+	code := u32(r)
+	if is_emoji_rune(r) {
+		return true
+	}
+	return (code >= 0x2190 && code <= 0x21ff) || (code >= 0x2200 && code <= 0x22ff)
+		|| (code >= 0x2300 && code <= 0x23ff) || (code >= 0x2460 && code <= 0x24ff)
+		|| (code >= 0x25a0 && code <= 0x25ff) || (code >= 0x2b00 && code <= 0x2bff)
 }
 
 fn min_int(left int, right int) int {
