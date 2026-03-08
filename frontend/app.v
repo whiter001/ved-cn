@@ -305,8 +305,8 @@ fn (mut window Window) draw_cursor(gutter_width int, top int, bottom int) {
 		return
 	}
 	line_text := state.buffer.lines[line]
-	visual_col := visual_column(line_text, state.buffer.cursor.column, 4)
-	x := gutter_width + 18 + visual_col * window.char_width
+	cursor_offset := window.text_width_before_column(line_text, state.buffer.cursor.column)
+	x := gutter_width + 18 + cursor_offset
 	y := top + (line - start) * window.line_height + 4
 	if state.mode == .insert {
 		$if macos {
@@ -317,11 +317,12 @@ fn (mut window Window) draw_cursor(gutter_width int, top int, bottom int) {
 		window.gg.draw_rect_filled(x, y, 2, window.line_height - 8, window.theme.cursor)
 		return
 	}
-	window.gg.draw_line(x, y, x + window.char_width, y, window.theme.cursor)
-	window.gg.draw_line(x, y + window.line_height - 8, x + window.char_width,
+	cursor_width := max_int(window.cursor_block_width(line_text, state.buffer.cursor.column), 2)
+	window.gg.draw_line(x, y, x + cursor_width, y, window.theme.cursor)
+	window.gg.draw_line(x, y + window.line_height - 8, x + cursor_width,
 		y + window.line_height - 8, window.theme.cursor)
 	window.gg.draw_line(x, y, x, y + window.line_height - 8, window.theme.cursor)
-	window.gg.draw_line(x + window.char_width, y, x + window.char_width,
+	window.gg.draw_line(x + cursor_width, y, x + cursor_width,
 		y + window.line_height - 8, window.theme.cursor)
 }
 
@@ -340,8 +341,7 @@ fn (mut window Window) draw_marked_text() {
 		return
 	}
 	line_text := state.buffer.lines[line]
-	visual_col := visual_column(line_text, state.buffer.cursor.column, 4)
-	x := gutter_width + 22 + visual_col * window.char_width
+	x := gutter_width + 22 + window.text_width_before_column(line_text, state.buffer.cursor.column)
 	y := 52 + window.tab_bar_height + (line - start) * window.line_height + 4
 	window.gg.draw_text(x, y, window.marked_text, text_cfg(window.theme.accent, window.font_size))
 	window.gg.draw_line(x, y + window.line_height - 3,
@@ -568,21 +568,30 @@ fn expand_tabs(text string, tab_size int) string {
 	return text.replace_each(['\t', ' '.repeat(tab_size)])
 }
 
-fn visual_column(text string, column int, tab_size int) int {
-	mut visual := 0
-	mut index := 0
-	for rune_value in text.runes() {
-		if index >= column {
-			break
-		}
-		if rune_value == `\t` {
-			visual += tab_size
-		} else {
-			visual++
-		}
-		index++
+fn (window &Window) text_width_before_column(text string, column int) int {
+	prefix := rune_prefix(text, column)
+	return window.gg.text_width(expand_tabs(prefix, 4))
+}
+
+fn (window &Window) cursor_block_width(text string, column int) int {
+	current := window.text_width_before_column(text, column)
+	next := window.text_width_before_column(text, column + 1)
+	if next > current {
+		return next - current
 	}
-	return visual
+	return window.char_width
+}
+
+fn rune_prefix(text string, column int) string {
+	if column <= 0 || text.len == 0 {
+		return ''
+	}
+	runes := text.runes()
+	end := min_int(column, runes.len)
+	if end <= 0 {
+		return ''
+	}
+	return runes[..end].string()
 }
 
 fn estimate_text_width(text string, size int) int {
