@@ -591,8 +591,14 @@ fn estimate_text_width(text string, size int) int {
 
 fn resolve_font_path() string {
 	paths := [
+		os.join_path(os.dir(os.executable()), 'AlibabaPuHuiTi-2-55-Regular.ttf'),
+		'AlibabaPuHuiTi-2-55-Regular.ttf',
 		os.join_path(os.dir(os.executable()), 'RobotoMono-Regular.ttf'),
 		'RobotoMono-Regular.ttf',
+		'/System/Library/Fonts/Hiragino Sans GB.ttc',
+		'/System/Library/Fonts/STHeiti Light.ttc',
+		'/System/Library/Fonts/STHeiti Medium.ttc',
+		'/System/Library/Fonts/Supplemental/Songti.ttc',
 		'/System/Library/Fonts/Supplemental/Courier New.ttf',
 		'/System/Library/Fonts/Supplemental/Andale Mono.ttf',
 		'/System/Library/Fonts/Menlo.ttc',
