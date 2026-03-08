@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import pyautogui
+import pyperclip
 
 DELAY_KEY = 0.20
 DELAY_TEXT = 0.45
@@ -127,6 +128,17 @@ class VedCnAutomator:
         time.sleep(0.10)
         for key in reversed(modifiers):
             pyautogui.keyUp(key)
+        time.sleep(DELAY_SWITCH)
+
+    def native_paste(self):
+        self.focus()
+        paste_mod = 'command' if platform.system() == 'Darwin' else 'ctrl'
+        for key in [paste_mod]:
+            pyautogui.keyDown(key)
+            time.sleep(0.10)
+        pyautogui.press('v')
+        time.sleep(0.10)
+        pyautogui.keyUp(paste_mod)
         time.sleep(DELAY_SWITCH)
 
     def write(self, text):
@@ -323,6 +335,21 @@ def test_picker_no_results_does_not_open_file():
         log = read_app_log()
         files_unchanged = all(read_file(name) == content for name, content in FIXTURE_FILES.items())
         return 'picker selection blocked: no results query=zzznomatch' in log and files_unchanged
+    finally:
+        app.quit()
+
+
+def test_native_paste_multiline_text():
+    reset_sandbox()
+    app = VedCnAutomator([SANDBOX / 'alpha.txt'])
+    try:
+        pyperclip.copy('中文第一行\n第二行😂')
+        app.start()
+        app.press('i')
+        app.native_paste()
+        app.save()
+        content = read_file('alpha.txt')
+        return content.startswith('中文第一行\n第二行😂line 1: alpha')
     finally:
         app.quit()
 

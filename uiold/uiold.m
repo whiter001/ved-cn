@@ -12,8 +12,7 @@ static void* g_window_ptr = NULL;
 
 @implementation VedImeView
 
-- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
-    NSString *text = ([string isKindOfClass:[NSAttributedString class]]) ? [string string] : (NSString *)string;
+- (void)commitInsertedText:(NSString *)text {
     if (text.length > 0 && g_insert_cb) {
         g_insert_cb(g_window_ptr, [text UTF8String]);
     }
@@ -22,6 +21,21 @@ static void* g_window_ptr = NULL;
     }
     [self setString:@""];
     [self unmarkText];
+}
+
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    NSString *text = ([string isKindOfClass:[NSAttributedString class]]) ? [string string] : (NSString *)string;
+    [self commitInsertedText:text];
+}
+
+- (void)paste:(id)sender {
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSString *text = [pasteboard stringForType:NSPasteboardTypeString];
+    if (text.length > 0) {
+        [self commitInsertedText:text];
+        return;
+    }
+    [super paste:sender];
 }
 
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {
@@ -83,6 +97,13 @@ void setup_mac_app() {
         if (window) {
             g_ime_view = [[VedImeView alloc] initWithFrame:NSMakeRect(-500, -500, 200, 20)];
             [g_ime_view setEditable:YES];
+            [g_ime_view setRichText:NO];
+            [g_ime_view setImportsGraphics:NO];
+            [g_ime_view setContinuousSpellCheckingEnabled:NO];
+            [g_ime_view setGrammarCheckingEnabled:NO];
+            [g_ime_view setAutomaticQuoteSubstitutionEnabled:NO];
+            [g_ime_view setAutomaticDashSubstitutionEnabled:NO];
+            [g_ime_view setAutomaticTextReplacementEnabled:NO];
             [g_ime_view setDrawsBackground:NO];
             [g_ime_view setBackgroundColor:[NSColor clearColor]];
             [g_ime_view setTextColor:[NSColor clearColor]];

@@ -243,6 +243,21 @@ fn (mut window Window) ensure_cursor_visible() {
 		top = state.buffer.cursor.line - visible + 1
 	}
 	state.buffer.scroll_top = max_int(top, 0)
+	line_text := state.buffer.lines[state.buffer.cursor.line]
+	viewport_width := window.editor_viewport_width()
+	cursor_offset := window.text_width_before_column(line_text, state.buffer.cursor.column)
+	mut left := state.buffer.scroll_left_px
+	padding := 24
+	if cursor_offset < left + padding {
+		left = max_int(cursor_offset - padding, 0)
+	}
+	if cursor_offset > left + viewport_width - padding {
+		left = max_int(cursor_offset - viewport_width + padding, 0)
+	}
+	if cursor_offset == 0 {
+		left = 0
+	}
+	state.buffer.scroll_left_px = max_int(left, 0)
 }
 
 fn (mut window Window) draw() {
@@ -279,8 +294,11 @@ fn (mut window Window) draw_editor_surface() {
 	top := 52 + window.tab_bar_height
 	bottom := 42
 	gutter_width := window.gutter_width()
+	text_left := gutter_width + 18
+	text_width := window.editor_viewport_width()
 	window.gg.draw_rect_filled(0, top, gutter_width, window.height - top - bottom, window.theme.panel)
 	window.gg.draw_line(gutter_width, top, gutter_width, window.height - bottom, window.theme.border)
+	window.gg.scissor_rect(text_left, top, text_width, window.height - top - bottom)
 	visible := window.visible_line_count()
 	start := state.buffer.scroll_top
 	end := min_int(start + visible, state.buffer.line_count())
@@ -292,11 +310,14 @@ fn (mut window Window) draw_editor_surface() {
 				window.line_height, window.theme.line_highlight)
 		}
 		line_label := '${line_no + 1:4d}'
+		window.gg.scissor_rect(0, top, window.width, window.height - top - bottom)
 		window.gg.draw_text(12, y + 5, line_label, text_cfg(window.theme.muted, 16))
+		window.gg.scissor_rect(text_left, top, text_width, window.height - top - bottom)
 		content := expand_tabs(state.buffer.lines[line_no], 4)
-		window.draw_text_with_fallback(gutter_width + 18, y + 4, content,
+		window.draw_text_with_fallback(text_left - state.buffer.scroll_left_px, y + 4, content,
 			text_cfg(window.theme.foreground, window.font_size))
 	}
+	window.gg.scissor_rect(0, 0, window.width, window.height)
 	window.draw_cursor(gutter_width, top, bottom)
 }
 
@@ -310,7 +331,7 @@ fn (mut window Window) draw_cursor(gutter_width int, top int, bottom int) {
 	}
 	line_text := state.buffer.lines[line]
 	cursor_offset := window.text_width_before_column(line_text, state.buffer.cursor.column)
-	x := gutter_width + 18 + cursor_offset
+	x := gutter_width + 18 + cursor_offset - state.buffer.scroll_left_px
 	y := top + (line - start) * window.line_height + 4
 	if state.mode == .insert {
 		$if macos {
@@ -345,7 +366,8 @@ fn (mut window Window) draw_marked_text() {
 		return
 	}
 	line_text := state.buffer.lines[line]
-	x := gutter_width + 22 + window.text_width_before_column(line_text, state.buffer.cursor.column)
+	x := gutter_width + 22 + window.text_width_before_column(line_text,
+		state.buffer.cursor.column) - state.buffer.scroll_left_px
 	y := 52 + window.tab_bar_height + (line - start) * window.line_height + 4
 	window.draw_text_with_fallback(x, y, window.marked_text,
 		text_cfg(window.theme.accent, window.font_size))
@@ -506,6 +528,11 @@ fn (window &Window) gutter_width() int {
 	state := window.session.current_state()
 	line_count_text := '${state.buffer.line_count()}'
 	return estimate_text_width(line_count_text, 16) + 36
+}
+
+fn (window &Window) editor_viewport_width() int {
+	gutter_width := window.gutter_width()
+	return max_int(window.width - gutter_width - 26, 120)
 }
 
 fn (mut window Window) draw_tab_bar() {

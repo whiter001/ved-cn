@@ -21,6 +21,7 @@ pub mut:
 	lines      []string
 	cursor     Cursor
 	scroll_top int
+	scroll_left_px int
 	dirty      bool
 }
 
