@@ -540,14 +540,18 @@ fn estimate_text_width(text string, size int) int {
 
 fn resolve_font_path() string {
 	paths := [
-		'/System/Library/Fonts/Menlo.ttc',
+		'RobotoMono-Regular.ttf',
 		'/System/Library/Fonts/Supplemental/Courier New.ttf',
+		'/System/Library/Fonts/Supplemental/Andale Mono.ttf',
+		'/System/Library/Fonts/Menlo.ttc',
 	]
 	for path in paths {
 		if os.exists(path) {
+			append_test_log('font path=${path}')
 			return path
 		}
 	}
+	append_test_log('font path=<empty>')
 	return ''
 }
 
