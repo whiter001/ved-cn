@@ -191,27 +191,59 @@ fn on_char(code u32, mut window Window) {
 }
 
 pub fn (mut window Window) on_event(event &gg.Event) {
-	if event.typ == .mouse_scroll {
-		mut state := window.session.current_state_mut()
-		if event.scroll_y < -0.2 {
-			state.buffer.move_down()
-		} else if event.scroll_y > 0.2 {
-			state.buffer.move_up()
+	match event.typ {
+		.resized, .resumed, .restored {
+			window.sync_window_size(event.window_width, event.window_height)
 		}
-		window.ensure_cursor_visible()
-		window.gg.refresh_ui()
-	}
-	if event.typ == .mouse_down {
-		for rect in window.tab_rects {
-			if point_in_rect(event.mouse_x, event.mouse_y, rect) {
-				window.session.current = rect.index
-				window.message = '切换到标签 ${rect.index + 1}'
-				window.ensure_cursor_visible()
-				window.gg.refresh_ui()
-				return
+		.mouse_scroll {
+			mut state := window.session.current_state_mut()
+			if event.scroll_y < -0.2 {
+				state.buffer.move_down()
+			} else if event.scroll_y > 0.2 {
+				state.buffer.move_up()
+			}
+			window.ensure_cursor_visible()
+			window.gg.refresh_ui()
+		}
+		.mouse_down {
+			for rect in window.tab_rects {
+				if point_in_rect(event.mouse_x, event.mouse_y, rect) {
+					window.session.current = rect.index
+					window.message = '切换到标签 ${rect.index + 1}'
+					window.ensure_cursor_visible()
+					window.gg.refresh_ui()
+					return
+				}
 			}
 		}
+		else {}
 	}
+}
+
+fn (mut window Window) sync_window_size(width int, height int) {
+	mut next_width := width
+	mut next_height := height
+	if next_width <= 0 || next_height <= 0 {
+		size := gg.window_size_real_pixels()
+		if next_width <= 0 {
+			next_width = size.width
+		}
+		if next_height <= 0 {
+			next_height = size.height
+		}
+	}
+	if next_width <= 0 || next_height <= 0 {
+		return
+	}
+	if next_width == window.width && next_height == window.height {
+		return
+	}
+	window.width = next_width
+	window.height = next_height
+	window.gg.resize(next_width, next_height)
+	window.ensure_cursor_visible()
+	window.sync_ime_focus()
+	window.gg.refresh_ui()
 }
 
 fn (mut window Window) save_current_buffer() {
@@ -256,6 +288,12 @@ fn (mut window Window) ensure_cursor_visible() {
 	}
 	if cursor_offset == 0 {
 		left = 0
+	}
+	line_width := window.measure_text_with_fallback(expand_tabs(line_text, 4),
+		text_cfg(window.theme.foreground, window.font_size))
+	max_left := max_int(line_width - viewport_width + padding, 0)
+	if left > max_left {
+		left = max_left
 	}
 	state.buffer.scroll_left_px = max_int(left, 0)
 }
