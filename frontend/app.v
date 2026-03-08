@@ -5,6 +5,7 @@ import editor
 import gg
 import infra
 import os
+import uiold
 
 struct Theme {
 	background       gg.Color
@@ -39,6 +40,7 @@ pub mut:
 	tab_rects      []TabRect
 	picker         FilePicker
 	skip_next_text string
+	marked_text    string
 	theme          Theme = default_theme()
 }
 
@@ -84,6 +86,12 @@ pub fn (mut window Window) run() {
 		font_path: resolve_font_path()
 		ui_mode: true
 	)
+	$if macos {
+		if os.getenv('VED_TEST') == '' {
+			uiold.reg_ved_instance(window)
+			spawn init_native_ime(window)
+		}
+	}
 	window.gg.run()
 }
 
@@ -100,12 +108,14 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 	}
 	if window.picker.active {
 		if window.handle_picker_key(key) {
+			window.sync_ime_focus()
 			window.gg.refresh_ui()
 		}
 		return
 	}
 	if super && key == .p {
 		window.open_picker()
+		window.sync_ime_focus()
 		window.gg.refresh_ui()
 		return
 	}
@@ -113,6 +123,7 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 		window.session.switch_prev()
 		window.message = '切换到上一个标签'
 		window.ensure_cursor_visible()
+		window.sync_ime_focus()
 		window.gg.refresh_ui()
 		return
 	}
@@ -120,6 +131,7 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 		window.session.switch_next()
 		window.message = '切换到下一个标签'
 		window.ensure_cursor_visible()
+		window.sync_ime_focus()
 		window.gg.refresh_ui()
 		return
 	}
@@ -127,6 +139,7 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 		window.session.add_empty_buffer()
 		window.message = '新建空标签'
 		window.ensure_cursor_visible()
+		window.sync_ime_focus()
 		window.gg.refresh_ui()
 		return
 	}
@@ -139,6 +152,7 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 		exit(0)
 	}
 	window.ensure_cursor_visible()
+	window.sync_ime_focus()
 	window.gg.refresh_ui()
 }
 
@@ -146,6 +160,13 @@ fn on_key_down(key gg.KeyCode, mod gg.Modifier, mut window Window) {
 fn on_char(code u32, mut window Window) {
 	if code < 32 {
 		return
+	}
+	$if macos {
+		if os.getenv('VED_TEST') == '' {
+			if window.session.current_state().mode == .insert {
+				return
+			}
+		}
 	}
 	mut buf := [5]u8{}
 	text := unsafe { utf32_to_str_no_malloc(code, mut &buf[0]) }
@@ -225,6 +246,7 @@ fn (mut window Window) draw() {
 	window.draw_top_bar()
 	window.draw_editor_surface()
 	window.draw_status_bar()
+	window.draw_marked_text()
 	if window.picker.active {
 		window.draw_picker()
 	}
@@ -287,6 +309,11 @@ fn (mut window Window) draw_cursor(gutter_width int, top int, bottom int) {
 	x := gutter_width + 18 + visual_col * window.char_width
 	y := top + (line - start) * window.line_height + 4
 	if state.mode == .insert {
+		$if macos {
+			if os.getenv('VED_TEST') == '' {
+				uiold.set_ime_position(x, y, window.line_height, window.gg.scale)
+			}
+		}
 		window.gg.draw_rect_filled(x, y, 2, window.line_height - 8, window.theme.cursor)
 		return
 	}
@@ -296,6 +323,30 @@ fn (mut window Window) draw_cursor(gutter_width int, top int, bottom int) {
 	window.gg.draw_line(x, y, x, y + window.line_height - 8, window.theme.cursor)
 	window.gg.draw_line(x + window.char_width, y, x + window.char_width,
 		y + window.line_height - 8, window.theme.cursor)
+}
+
+fn (mut window Window) draw_marked_text() {
+	if window.marked_text == '' {
+		return
+	}
+	state := window.session.current_state()
+	if state.mode != .insert {
+		return
+	}
+	gutter_width := window.gutter_width()
+	start := state.buffer.scroll_top
+	line := state.buffer.cursor.line
+	if line < start || line >= start + window.visible_line_count() {
+		return
+	}
+	line_text := state.buffer.lines[line]
+	visual_col := visual_column(line_text, state.buffer.cursor.column, 4)
+	x := gutter_width + 22 + visual_col * window.char_width
+	y := 52 + window.tab_bar_height + (line - start) * window.line_height + 4
+	window.gg.draw_text(x, y, window.marked_text, text_cfg(window.theme.accent, window.font_size))
+	window.gg.draw_line(x, y + window.line_height - 3,
+		x + estimate_text_width(window.marked_text, window.font_size), y + window.line_height - 3,
+		window.theme.accent)
 }
 
 fn (mut window Window) draw_status_bar() {
@@ -540,6 +591,7 @@ fn estimate_text_width(text string, size int) int {
 
 fn resolve_font_path() string {
 	paths := [
+		os.join_path(os.dir(os.executable()), 'RobotoMono-Regular.ttf'),
 		'RobotoMono-Regular.ttf',
 		'/System/Library/Fonts/Supplemental/Courier New.ttf',
 		'/System/Library/Fonts/Supplemental/Andale Mono.ttf',

@@ -93,6 +93,30 @@ pub fn (mut buffer Buffer) move_down() {
 	buffer.normalize_scroll_top()
 }
 
+pub fn (mut buffer Buffer) move_to_line_start() {
+	buffer.cursor.column = 0
+	buffer.normalize_scroll_top()
+}
+
+pub fn (mut buffer Buffer) move_to_line_end() {
+	buffer.cursor.column = rune_len(buffer.lines[buffer.cursor.line])
+	buffer.normalize_scroll_top()
+}
+
+pub fn (mut buffer Buffer) move_page_up(amount int) {
+	steps := max_int(amount, 1)
+	buffer.cursor.line = clamp(buffer.cursor.line - steps, 0, buffer.lines.len - 1)
+	buffer.cursor.column = min_int(buffer.cursor.column, rune_len(buffer.lines[buffer.cursor.line]))
+	buffer.normalize_scroll_top()
+}
+
+pub fn (mut buffer Buffer) move_page_down(amount int) {
+	steps := max_int(amount, 1)
+	buffer.cursor.line = clamp(buffer.cursor.line + steps, 0, buffer.lines.len - 1)
+	buffer.cursor.column = min_int(buffer.cursor.column, rune_len(buffer.lines[buffer.cursor.line]))
+	buffer.normalize_scroll_top()
+}
+
 pub fn (mut buffer Buffer) insert_text(text string) {
 	if text.len == 0 {
 		return
@@ -301,11 +325,13 @@ fn byte_index_at_column(line string, column int) int {
 	if column <= 0 {
 		return 0
 	}
+	mut byte_index := 0
 	mut rune_index := 0
-	for index, _ in line {
+	for rune_value in line.runes() {
 		if rune_index == column {
-			return index
+			return byte_index
 		}
+		byte_index += rune_value.length_in_bytes()
 		rune_index++
 	}
 	return line.len
